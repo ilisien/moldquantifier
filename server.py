@@ -23,6 +23,24 @@ def save_threshold(threshold):
     with open(THRESHOLD_FILE, "w") as f:
         json.dump(threshold, f)
 
+import cv2
+import numpy as np
+
+def smooth_contour(contour, ksize=5):
+    # Ensure the contour is in the correct shape: (n, 1, 2) as a list of points
+    contour = np.array(contour).reshape(-1, 2)
+    
+    # Apply smoothing directly on the contour points using a simple moving average or Gaussian kernel
+    smoothed_contour = np.array([contour[0]])
+    
+    for i in range(1, len(contour) - 1):
+        smoothed_point = (contour[i - 1] + contour[i] + contour[i + 1]) / 3
+        smoothed_contour = np.vstack([smoothed_contour, smoothed_point])
+    
+    smoothed_contour = np.vstack([smoothed_contour, contour[-1]])  # Add the last point
+    smoothed_contour = smoothed_contour.astype(np.int32)  # Convert back to integer points
+    return smoothed_contour
+
 def detect_mold(image_path, threshold):
     image = cv2.imread(image_path)
     if image is None:
@@ -46,14 +64,18 @@ def detect_mold(image_path, threshold):
             circularity >= threshold["circularity_min"]):
             filtered_contours.append(contour)
     
-    # Draw bounding boxes
-    result = image.copy()
+    # Simplify the contours using the Ramer-Douglas-Peucker algorithm
+    simplified_contours = []
     for contour in filtered_contours:
-        x, y, w, h = cv2.boundingRect(contour)
-        cv2.rectangle(result, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        smoothed_approx = smooth_contour(contour)  # Apply smoothing
+        simplified_contours.append(smoothed_approx)
+    
+    # Draw the simplified and smoothed contours
+    result = image.copy()
+    cv2.drawContours(result, simplified_contours, -1, (0, 255, 0), 2)  # Green color, 2 px thickness
 
-    mask_path = os.path.join(UPLOAD_FOLDER, "mask.jpg")
-    result_path = os.path.join(UPLOAD_FOLDER, "result.jpg")
+    mask_path = "mask.jpg"
+    result_path = "result.jpg"
 
     cv2.imwrite(mask_path, mask)
     cv2.imwrite(result_path, result)
