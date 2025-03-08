@@ -2,7 +2,7 @@ import panel as pn
 import cv2
 import numpy as np
 import json
-import os
+import os, io
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -60,27 +60,39 @@ def update_images(event=None):
     new_threshold = {k: v.value for k, v in sliders.items()}
     save_threshold(new_threshold)
     mask_img, result_img = detect_mold(image_path, new_threshold)
-    if mask_img and result_img:
-        mask_pane.object = mask_img
-        result_pane.object = result_img
 
+    if mask_img and result_img:
+        with open(mask_img, "rb") as f:
+            mask_pane.object = f.read()
+        with open(result_img, "rb") as f:
+            result_pane.object = f.read()
+            
 for slider in sliders.values():
     slider.param.watch(update_images, "value")
 
 def upload_image(event):
     global image_path
-    file_obj = file_input.value[0]
+    file_obj = file_input.value  # No need for [0], value itself is bytes
     if file_obj:
         image_path = os.path.join(UPLOAD_FOLDER, "uploaded.jpg")
-        with open(image_path, "wb") as f:
-            f.write(file_obj)
+        with open(image_path, "wb") as f:  # Ensure writing as binary
+            f.write(file_obj)  # No need to access index
         update_images()
 
 file_input = pn.widgets.FileInput()
 file_input.param.watch(upload_image, "value")
 
 controls = pn.Column("### Upload Image", file_input, "### Adjust Thresholds", *sliders.values())
-layout = pn.Row(controls, pn.Column(mask_pane, result_pane))
+
+mask_pane = pn.pane.Image(None, height=400, sizing_mode="scale_both")
+result_pane = pn.pane.Image(None, height=400, sizing_mode="scale_both")
+
+image_display = pn.Column(
+    pn.pane.Markdown("### Masked Image"), mask_pane,
+    pn.pane.Markdown("### Result Image"), result_pane
+)
+
+layout = pn.Row(controls, pn.Card(image_display, title="Image Output"))
 
 pn.serve(layout, title="Mold Detection Panel", show=True)
 
