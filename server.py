@@ -27,15 +27,37 @@ def detect_mold(image_path, threshold):
     image = cv2.imread(image_path)
     if image is None:
         return None, None
+    
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     lower_bound = np.array([threshold['h_min'], threshold['s_min'], threshold['v_min']])
     upper_bound = np.array([threshold['h_max'], threshold['s_max'], threshold['v_max']])
+    
     mask = cv2.inRange(hsv, lower_bound, upper_bound)
-    result = cv2.bitwise_and(image, image, mask=mask)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    filtered_contours = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, True)
+        circularity = (4 * np.pi * area) / (perimeter ** 2) if perimeter > 0 else 0
+        
+        if (area >= threshold["area_min"] and
+            perimeter >= threshold["perimeter_min"] and
+            circularity >= threshold["circularity_min"]):
+            filtered_contours.append(contour)
+    
+    # Draw bounding boxes
+    result = image.copy()
+    for contour in filtered_contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        cv2.rectangle(result, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
     mask_path = os.path.join(UPLOAD_FOLDER, "mask.jpg")
     result_path = os.path.join(UPLOAD_FOLDER, "result.jpg")
+
     cv2.imwrite(mask_path, mask)
     cv2.imwrite(result_path, result)
+
     return mask_path, result_path
 
 threshold = load_threshold()
@@ -47,7 +69,10 @@ sliders = {
     "s_min": pn.widgets.IntSlider(name="Saturation Min", start=0, end=255, value=threshold["s_min"]),
     "s_max": pn.widgets.IntSlider(name="Saturation Max", start=0, end=255, value=threshold["s_max"]),
     "v_min": pn.widgets.IntSlider(name="Value Min", start=0, end=255, value=threshold["v_min"]),
-    "v_max": pn.widgets.IntSlider(name="Value Max", start=0, end=255, value=threshold["v_max"])
+    "v_max": pn.widgets.IntSlider(name="Value Max", start=0, end=255, value=threshold["v_max"]),
+    "circularity_min": pn.widgets.FloatSlider(name="Circularity Min", start=0, end=1, value=0.50),
+    "area_min": pn.widgets.IntSlider(name="Min Area", start=100, end=5000, value=500),
+    "perimeter_min": pn.widgets.IntSlider(name="Min Perimeter", start=10, end=1000, value=50)
 }
 
 mask_pane = pn.pane.Image(None, width=400)
@@ -95,6 +120,3 @@ image_display = pn.Column(
 layout = pn.Row(controls, pn.Card(image_display, title="Image Output"))
 
 pn.serve(layout, title="Mold Detection Panel", show=True)
-
-if __name__ == '__main__':
-    app.run(debug=True)
